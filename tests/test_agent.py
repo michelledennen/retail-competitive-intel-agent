@@ -100,9 +100,22 @@ def test_brief_quality_reviewer_self_evaluates_with_schema():
 
 
 def test_coordinator_constitution_sections():
-    text = agent_module.root_agent.instruction
+    text = agent_module.root_agent.static_instruction
     for heading in ("Identity and mission", "Domain knowledge", "Hard constraints", "Error handling"):
         assert heading in text
+
+
+def test_static_instructions_have_no_state_placeholders():
+    """Static (system) instructions must be identical every turn so the
+    context cache stays aligned; per-turn state lives in `instruction`."""
+    agents = [
+        agent_module.root_agent,
+        *agent_module.competitive_report_pipeline.sub_agents[1:],  # writer, reviewer
+    ]
+    for agent in agents:
+        assert agent.static_instruction
+        assert "{" not in agent.static_instruction, agent.name
+    assert "{user:focus_areas?}" in agent_module.root_agent.instruction
 
 
 def _request(text: str) -> LlmRequest:

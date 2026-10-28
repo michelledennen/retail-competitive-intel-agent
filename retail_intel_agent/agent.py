@@ -228,7 +228,8 @@ strategy_writer = LlmAgent(
     name="strategy_writer",
     model=_model(config.PRO_MODEL),  # synthesis + reasoning
     description="Writes an executive competitive brief with a SWOT and talking points.",
-    instruction=prompts.STRATEGY_WRITER_INSTRUCTION,
+    static_instruction=prompts.STRATEGY_WRITER_STATIC_INSTRUCTION,
+    instruction=prompts.STRATEGY_WRITER_DYNAMIC_INSTRUCTION,
     output_key="strategy_brief",
     generate_content_config=types.GenerateContentConfig(temperature=0.4),
 )
@@ -239,7 +240,8 @@ brief_quality_reviewer = LlmAgent(
     name="brief_quality_reviewer",
     model=_model(config.PRO_MODEL),
     description="Checks the brief is grounded, complete and disclaimed; fixes it if not.",
-    instruction=prompts.BRIEF_QUALITY_REVIEWER_INSTRUCTION,
+    static_instruction=prompts.BRIEF_QUALITY_REVIEWER_STATIC_INSTRUCTION,
+    instruction=prompts.BRIEF_QUALITY_REVIEWER_DYNAMIC_INSTRUCTION,
     output_schema=BriefReview,
     output_key="brief_review",
     generate_content_config=types.GenerateContentConfig(temperature=0.0),
@@ -283,7 +285,8 @@ root_agent = LlmAgent(
     name="retail_strategy_coordinator",
     model=_model(config.PRO_MODEL),  # routing + reasoning
     description="Coordinates competitive analysis of Walmart vs. top US retailers.",
-    instruction=prompts.COORDINATOR_INSTRUCTION,
+    static_instruction=prompts.COORDINATOR_STATIC_INSTRUCTION,
+    instruction=prompts.COORDINATOR_DYNAMIC_INSTRUCTION,
     tools=[
         AgentTool(agent=financial_analyst),
         AgentTool(agent=market_researcher),

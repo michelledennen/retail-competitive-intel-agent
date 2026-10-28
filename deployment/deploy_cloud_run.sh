@@ -2,6 +2,9 @@
 # Deploys the agent to Google Cloud Run using the ADK CLI, with
 # OpenTelemetry traces exported to Google Cloud Trace.
 #
+# For a fully reproducible, least-privilege setup (service account, Secret
+# Manager, Artifact Registry) use the Terraform in ../terraform instead.
+#
 # Prerequisites:
 #   gcloud auth login && gcloud config set project YOUR_PROJECT_ID
 #   export GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID
@@ -19,3 +22,7 @@ adk deploy cloud_run \
   --with_ui \
   --trace_to_cloud \
   ./retail_intel_agent
+
+# The API key should come from Secret Manager, not a plain env var:
+#   gcloud run services update "${SERVICE}" --region "${REGION}" \
+#     --update-secrets GOOGLE_API_KEY=google-api-key:latest

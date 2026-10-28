@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from retail_intel_agent.tools import retail_tools as t
+from retail_intel_agent.tools import schemas as S
 
 
 @pytest.fixture
@@ -103,3 +104,74 @@ def test_save_insight_caps_history(ctx):
         t.save_insight(f"note {i}", ctx)
     assert len(ctx.state[t.STATE_SAVED_INSIGHTS]) == 25
     assert ctx.state[t.STATE_SAVED_INSIGHTS][-1] == "note 29"
+
+
+# --------------------------------------------------------------------------
+# Explicit JSON schemas
+# --------------------------------------------------------------------------
+def _declaration(fn):
+    from google.adk.tools import FunctionTool
+
+    return FunctionTool(fn)._get_declaration()
+
+
+def _params_schema(fn) -> dict:
+    decl = _declaration(fn)
+    if decl.parameters_json_schema is not None:
+        return decl.parameters_json_schema
+    return decl.parameters.model_dump(exclude_none=True)
+
+
+def test_metric_is_an_enum_in_the_function_declaration():
+    schema = _params_schema(t.compare_companies)
+    props = schema["properties"]
+    metric = props["metric"]
+    enum = metric.get("enum") or metric.get("enum_")
+    assert set(enum) == set(t.NUMERIC_METRICS + t.DERIVED_METRICS)
+    assert "tool_context" not in props
+
+
+@pytest.mark.parametrize(
+    "call,model",
+    [
+        (lambda c: t.list_supported_companies(), S.ListCompaniesOutput),
+        (lambda c: t.get_company_profile("Target"), S.CompanyProfileOutput),
+        (lambda c: t.compare_companies(["WMT", "COST"], "net_margin_pct", c), S.CompareCompaniesOutput),
+        (lambda c: t.build_comparison_table(["Walmart"]), S.ComparisonTableOutput),
+        (lambda c: t.remember_focus_area("pricing", c), S.FocusAreasOutput),
+        (lambda c: t.save_insight("Target's Roundel is growing.", c), S.SaveInsightOutput),
+        (lambda c: t.get_user_profile(c), S.UserProfileOutput),
+        (lambda c: t.clear_user_memory(c), S.ClearMemoryOutput),
+        (lambda c: t.get_company_profile("Nope"), S.ToolError),
+        (lambda c: t.compare_companies(["Walmart"], "store_count", c), S.ToolError),
+    ],
+)
+def test_tool_outputs_match_their_pydantic_schema(ctx, call, model):
+    model.model_validate(call(ctx))
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        lambda c: t.get_company_profile("Acme"),
+        lambda c: t.compare_companies(["Walmart", "Amazon"], "vibes", c),
+        lambda c: t.compare_companies(["Walmart", "Nope"], "store_count", c),
+        lambda c: t.build_comparison_table([]),
+        lambda c: t.remember_focus_area("", c),
+        lambda c: t.save_insight("", c),
+    ],
+)
+def test_errors_include_recovery_instructions(ctx, result):
+    out = result(ctx)
+    assert out["status"] == "error"
+    assert out["error_message"]
+    assert len(out["recovery"]) > 20
+
+
+def test_clear_user_memory_wipes_user_state(ctx):
+    t.remember_focus_area("grocery", ctx)
+    t.save_insight("note", ctx)
+    out = t.clear_user_memory(ctx)
+    assert out["status"] == "success"
+    assert ctx.state[t.STATE_FOCUS_AREAS] == []
+    assert ctx.state[t.STATE_SAVED_INSIGHTS] == []

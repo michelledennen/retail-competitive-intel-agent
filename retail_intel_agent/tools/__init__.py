@@ -2,6 +2,7 @@
 
 from .retail_tools import (
     build_comparison_table,
+    clear_user_memory,
     compare_companies,
     get_company_profile,
     get_user_profile,
@@ -12,6 +13,7 @@ from .retail_tools import (
 
 __all__ = [
     "build_comparison_table",
+    "clear_user_memory",
     "compare_companies",
     "get_company_profile",
     "get_user_profile",

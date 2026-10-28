@@ -1,0 +1,4 @@
+# Extra dependencies for running the live ADK evaluation (`make eval`,
+# tests/test_eval.py::test_agent_evaluator_golden_set). Requires GOOGLE_API_KEY.
+-r requirements.txt
+google-adk[eval]==2.12.0

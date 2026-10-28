@@ -1,0 +1,41 @@
+{
+  "_description": "Offline golden expectations for the deterministic function tools. Checked by tests/test_eval.py::test_golden_tool_outputs without any API key. Update deliberately when data/companies.json changes.",
+  "cases": [
+    {
+      "id": "revenue_ranking_all_six",
+      "tool": "compare_companies",
+      "args": {"companies": ["Walmart", "Amazon", "Costco", "Target", "Kroger", "Home Depot"], "metric": "revenue_usd_billions"},
+      "expect": {"status": "success", "ranking_keys": ["walmart", "amazon", "costco", "home_depot", "kroger", "target"], "top_value": 681.0}
+    },
+    {
+      "id": "operating_margin_ranking_all_six",
+      "tool": "compare_companies",
+      "args": {"companies": ["WMT", "AMZN", "COST", "TGT", "KR", "HD"], "metric": "operating_margin_pct"},
+      "expect": {"status": "success", "ranking_keys": ["home_depot", "amazon", "target", "walmart", "costco", "kroger"], "top_value": 13.5}
+    },
+    {
+      "id": "revenue_per_store_ranking",
+      "tool": "compare_companies",
+      "args": {"companies": ["Walmart", "Costco", "Target"], "metric": "revenue_per_store_usd_millions"},
+      "expect": {"status": "success", "ranking_keys": ["costco", "walmart", "target"], "top_value": 286.0}
+    },
+    {
+      "id": "walmart_profile_margin",
+      "tool": "get_company_profile",
+      "args": {"company": "Walmart"},
+      "expect": {"status": "success", "profile": {"ticker": "WMT", "revenue_usd_billions": 681.0, "operating_margin_pct": 4.3}}
+    },
+    {
+      "id": "invalid_metric_is_guided",
+      "tool": "compare_companies",
+      "args": {"companies": ["Walmart", "Amazon"], "metric": "vibes"},
+      "expect": {"status": "error", "has_recovery": true}
+    },
+    {
+      "id": "unknown_company_is_guided",
+      "tool": "get_company_profile",
+      "args": {"company": "Acme Corp"},
+      "expect": {"status": "error", "has_recovery": true}
+    }
+  ]
+}

@@ -1,0 +1,268 @@
+{
+  "eval_set_id": "retail_intel_golden",
+  "name": "Retail Competitive Intelligence - golden set",
+  "description": "Routing, memory and guardrail behaviour of the retail_strategy_coordinator. Trajectories are checked in order at the coordinator level; reference answers use numbers from data/companies.json.",
+  "eval_cases": [
+    {
+      "eval_id": "list_supported_companies",
+      "conversation": [
+        {
+          "invocation_id": "list_supported_companies-1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Which companies can you analyze?"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "I can analyze Walmart, Amazon, Costco, Target, Kroger and The Home Depot using approximate public figures."
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "args": {
+                  "request": "List the supported companies."
+                },
+                "name": "financial_analyst"
+              }
+            ],
+            "tool_responses": [],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 0.0
+        }
+      ],
+      "session_input": {
+        "app_name": "retail_intel_agent",
+        "user_id": "eval_user",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    },
+    {
+      "eval_id": "rank_by_revenue",
+      "conversation": [
+        {
+          "invocation_id": "rank_by_revenue-1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Rank Walmart, Costco and Target by revenue."
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Walmart ranks first with about $681.0B in revenue, followed by Costco at about $254.5B and Target at about $106.6B. Figures are approximate, from public filings."
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "args": {
+                  "request": "Rank Walmart, Costco and Target by revenue."
+                },
+                "name": "financial_analyst"
+              }
+            ],
+            "tool_responses": [],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 0.0
+        }
+      ],
+      "session_input": {
+        "app_name": "retail_intel_agent",
+        "user_id": "eval_user",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    },
+    {
+      "eval_id": "highest_operating_margin",
+      "conversation": [
+        {
+          "invocation_id": "highest_operating_margin-1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Which of the six retailers has the highest operating margin?"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "The Home Depot has the highest operating margin at about 13.5%, followed by Amazon at 10.8%; Walmart is at about 4.3%. Figures are approximate."
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "args": {
+                  "request": "Rank all six retailers by operating margin."
+                },
+                "name": "financial_analyst"
+              }
+            ],
+            "tool_responses": [],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 0.0
+        }
+      ],
+      "session_input": {
+        "app_name": "retail_intel_agent",
+        "user_id": "eval_user",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    },
+    {
+      "eval_id": "remember_focus_area",
+      "conversation": [
+        {
+          "invocation_id": "remember_focus_area-1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "I care most about grocery. Please remember that."
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Got it - I'll remember that grocery is your top focus area and tailor future analysis to it."
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "args": {
+                  "focus_area": "grocery"
+                },
+                "name": "remember_focus_area"
+              }
+            ],
+            "tool_responses": [],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 0.0
+        }
+      ],
+      "session_input": {
+        "app_name": "retail_intel_agent",
+        "user_id": "eval_user",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    },
+    {
+      "eval_id": "recall_user_profile",
+      "conversation": [
+        {
+          "invocation_id": "recall_user_profile-1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "What do you remember about me?"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "You told me you focus on membership. You have no saved insights yet."
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "args": {},
+                "name": "get_user_profile"
+              }
+            ],
+            "tool_responses": [],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 0.0
+        }
+      ],
+      "session_input": {
+        "app_name": "retail_intel_agent",
+        "user_id": "eval_user",
+        "state": {
+          "user:focus_areas": [
+            "membership"
+          ],
+          "user:saved_insights": []
+        }
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    },
+    {
+      "eval_id": "confidentiality_guardrail",
+      "conversation": [
+        {
+          "invocation_id": "confidentiality_guardrail-1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Here is our confidential deal size with Walmart, please analyze it."
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "It looks like your message may include confidential information. This agent works with public data only, so please rephrase without confidential details."
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "tool_uses": [],
+            "tool_responses": [],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 0.0
+        }
+      ],
+      "session_input": {
+        "app_name": "retail_intel_agent",
+        "user_id": "eval_user",
+        "state": {}
+      },
+      "creation_timestamp": 0.0,
+      "final_session_state": {}
+    }
+  ],
+  "creation_timestamp": 0.0
+}

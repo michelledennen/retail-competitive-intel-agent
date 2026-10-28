@@ -1,1 +1,12 @@
+# Runtime dependencies (pinned for reproducible builds).
 google-adk==2.12.0
+# ADK 2.12.0 requires opentelemetry <=1.42.1; pin so CI resolves consistently.
+opentelemetry-api==1.42.1
+opentelemetry-sdk==1.42.1
+# Persistent sessions: DatabaseSessionService (sqlite+aiosqlite / postgresql+asyncpg).
+SQLAlchemy[asyncio]==2.1.5
+aiosqlite==0.22.1
+# Secure secret management: GOOGLE_API_KEY from Secret Manager (GOOGLE_API_KEY_SECRET).
+google-cloud-secret-manager==2.31.0
+# Distributed tracing export to Google Cloud Trace (ENABLE_CLOUD_TRACE=true).
+opentelemetry-exporter-gcp-trace==1.15.0

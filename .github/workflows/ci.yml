@@ -6,9 +6,27 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # scan full history, not just the last commit
+      - name: Install gitleaks
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz \
+            | tar -xz -C /usr/local/bin gitleaks
+      - name: Scan repository for committed secrets
+        run: gitleaks detect --source . --redact --verbose --exit-code 1
+
   lint-and-test:
     runs-on: ubuntu-latest
+    needs: secret-scan
     strategy:
       matrix:
         python-version: ["3.11", "3.12"]
@@ -24,15 +42,63 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
+          pip check
 
       - name: Lint (ruff)
         run: ruff check .
 
-      - name: Unit tests (pytest)
+      - name: Unit, golden-data and eval-format tests (pytest)
         run: pytest -v
         env:
-          # Optional: add GOOGLE_API_KEY as a repository secret to enable the live test.
+          # Optional: add GOOGLE_API_KEY as a repository secret to enable live tests.
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+
+      - name: Eval set is up to date
+        run: |
+          python eval/build_evalset.py
+          git diff --exit-code eval/data/
+
+  live-eval:
+    name: Live agent evaluation (adk eval)
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+    # Only runs when a GOOGLE_API_KEY repository secret is configured.
+    if: ${{ github.event_name != 'pull_request' }}
+    env:
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Skip notice
+        if: ${{ env.GOOGLE_API_KEY == '' }}
+        run: echo "GOOGLE_API_KEY secret not set; skipping live evaluation."
+      - name: Install eval dependencies
+        if: ${{ env.GOOGLE_API_KEY != '' }}
+        run: pip install -r requirements-eval.txt
+      - name: adk eval (golden set)
+        if: ${{ env.GOOGLE_API_KEY != '' }}
+        run: |
+          adk eval retail_intel_agent eval/data/retail_intel.evalset.json \
+            --config_file_path eval/data/test_config.json --print_detailed_results
+
+  terraform:
+    name: Terraform fmt + validate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: terraform fmt
+        run: terraform fmt -check -recursive -diff
+      - name: terraform init (no backend)
+        run: terraform init -backend=false -input=false
+      - name: terraform validate
+        run: terraform validate
 
   docker-build:
     runs-on: ubuntu-latest

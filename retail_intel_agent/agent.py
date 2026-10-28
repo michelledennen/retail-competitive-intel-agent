@@ -2,20 +2,25 @@
 
 Architecture
 ------------
-retail_strategy_coordinator (LlmAgent, root)
-├── tool: financial_analyst          (AgentTool -> LlmAgent + 4 function tools)
-├── tool: market_researcher          (AgentTool -> LlmAgent + Google Search)
+retail_strategy_coordinator (LlmAgent, root, PRO_MODEL)
+├── tool: financial_analyst          (AgentTool -> LlmAgent [FAST_MODEL] + 4 function tools)
+├── tool: market_researcher          (AgentTool -> LlmAgent [FAST_MODEL] + Google Search)
 ├── tool: competitive_report_pipeline (AgentTool -> SequentialAgent)
 │       ├── research_fanout (ParallelAgent)
-│       │     ├── financial_snapshot  -> state["financial_findings"]
-│       │     └── news_scan           -> state["market_news"]
-│       └── strategy_writer           (reads both from state)
-├── tool: remember_focus_area / save_insight / get_user_profile (user-scoped state)
+│       │     ├── financial_snapshot  [FAST] -> state["financial_findings"]
+│       │     └── news_scan           [FAST] -> state["market_news"]
+│       ├── strategy_writer           [PRO]  -> state["strategy_brief"]
+│       └── brief_quality_reviewer    [PRO]  -> state["brief_review"] (self-evaluation,
+│                                               structured BriefReview output)
+├── tool: remember_focus_area / get_user_profile (user-scoped state)
+├── tool: save_insight / clear_user_memory       (human-in-the-loop confirmation)
 └── tool: load_memory                 (long-term memory across sessions)
 """
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import re
 from typing import Optional
 
@@ -23,15 +28,17 @@ from google.adk.agents import LlmAgent, ParallelAgent, SequentialAgent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.apps import App
 from google.adk.apps.app import EventsCompactionConfig
+from google.adk.models.google_llm import Gemini
 from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
-from google.adk.tools import AgentTool, google_search, load_memory
+from google.adk.tools import AgentTool, FunctionTool, google_search, load_memory
 from google.genai import types
 
 from . import config, prompts
 from .observability import ObservabilityPlugin
 from .tools import (
     build_comparison_table,
+    clear_user_memory,
     compare_companies,
     get_company_profile,
     get_user_profile,
@@ -40,6 +47,26 @@ from .tools import (
     save_insight,
 )
 from .tools.retail_tools import STATE_FOCUS_AREAS, STATE_SAVED_INSIGHTS
+from .tools.schemas import BriefReview
+
+logger = logging.getLogger("retail_intel_agent.agent")
+
+# Resilience: transient server errors (model overloaded / 5xx) are retried with
+# exponential backoff. 429 quota errors are NOT retried; they are handled by
+# graceful-degradation callbacks instead.
+MODEL_RETRY_OPTIONS = types.HttpRetryOptions(
+    attempts=4,
+    initial_delay=2.0,
+    exp_base=2.0,
+    max_delay=20.0,
+    http_status_codes=[500, 502, 503, 504],
+)
+
+
+def _model(name: str) -> Gemini:
+    """Builds a Gemini model with retry/backoff for transient failures."""
+    return Gemini(model=name, retry_options=MODEL_RETRY_OPTIONS)
+
 
 FINANCIAL_TOOLS = [
     list_supported_companies,
@@ -47,6 +74,11 @@ FINANCIAL_TOOLS = [
     compare_companies,
     build_comparison_table,
 ]
+
+# Human-in-the-loop: persistent / destructive writes pause for user approval
+# (ADK emits an adk_request_confirmation event; `adk web` shows Approve/Reject).
+save_insight_tool = FunctionTool(save_insight, require_confirmation=True)
+clear_user_memory_tool = FunctionTool(clear_user_memory, require_confirmation=True)
 
 # --------------------------------------------------------------------------
 # Callbacks
@@ -57,6 +89,10 @@ _CONFIDENTIAL_PATTERN = re.compile(
     r"contract value|deal size|pricing proposal)\b",
     re.IGNORECASE,
 )
+
+# Strong references to in-flight background tasks so they are not garbage
+# collected before they finish (see asyncio.create_task docs).
+_BACKGROUND_TASKS: set[asyncio.Task] = set()
 
 
 def initialize_state(callback_context: CallbackContext) -> Optional[types.Content]:
@@ -71,12 +107,31 @@ def initialize_state(callback_context: CallbackContext) -> Optional[types.Conten
     return None
 
 
+def _log_memory_task_result(task: asyncio.Task) -> None:
+    _BACKGROUND_TASKS.discard(task)
+    if task.cancelled():
+        logger.warning("memory_save_cancelled")
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.warning("memory_save_failed: %r", exc)
+
+
 async def save_session_to_memory(callback_context: CallbackContext) -> Optional[types.Content]:
-    """After each turn, store the session in long-term memory for later recall."""
+    """After each turn, store the session in long-term memory -- asynchronously.
+
+    The (potentially slow) memory write runs as a background asyncio task so
+    it never delays the user's response. Failures are logged, never raised.
+    """
     try:
-        await callback_context.add_session_to_memory()
-    except Exception:  # memory service may be unavailable; never break the chat
-        pass
+        task = asyncio.create_task(
+            callback_context.add_session_to_memory(), name="retail_intel.memory_save"
+        )
+    except Exception as exc:  # e.g. no memory service configured
+        logger.warning("memory_save_not_scheduled: %r", exc)
+        return None
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_log_memory_task_result)
     return None
 
 
@@ -118,7 +173,7 @@ def confidentiality_guardrail(
 def _financial_agent(name: str, instruction: str, output_key: str | None = None) -> LlmAgent:
     return LlmAgent(
         name=name,
-        model=config.MODEL,
+        model=_model(config.FAST_MODEL),  # tool-calling data lookups: fast + cheap
         description="Analyzes and compares public financial metrics of major US retailers.",
         instruction=instruction,
         tools=FINANCIAL_TOOLS,
@@ -127,14 +182,37 @@ def _financial_agent(name: str, instruction: str, output_key: str | None = None)
     )
 
 
+SEARCH_UNAVAILABLE_MESSAGE = (
+    "Live web search is temporarily unavailable (quota or rate limit reached). "
+    "No recent news could be retrieved. Downstream steps should rely on the "
+    "built-in public financial dataset and clearly note that recent news was "
+    "not included."
+)
+
+
+def search_fallback_on_error(
+    callback_context: CallbackContext, llm_request: LlmRequest, error: Exception
+) -> Optional[LlmResponse]:
+    """Graceful degradation: if web search hits a quota/rate limit, return a
+    clear notice instead of failing the whole pipeline."""
+    text = repr(error)
+    if "RESOURCE_EXHAUSTED" in text or "429" in text or "UNAVAILABLE" in text:
+        callback_context.state["temp:search_unavailable"] = True
+        return LlmResponse(
+            content=types.Content(role="model", parts=[types.Part(text=SEARCH_UNAVAILABLE_MESSAGE)])
+        )
+    return None
+
+
 def _research_agent(name: str, instruction: str, output_key: str | None = None) -> LlmAgent:
     return LlmAgent(
         name=name,
-        model=config.MODEL,
+        model=_model(config.FAST_MODEL),  # search + summarize: fast + cheap
         description="Searches the web for recent public news about retailers.",
         instruction=instruction,
         tools=[google_search],
         output_key=output_key,
+        on_model_error_callback=search_fallback_on_error,
         generate_content_config=types.GenerateContentConfig(temperature=0.2),
     )
 
@@ -148,18 +226,32 @@ market_researcher = _research_agent(
 
 strategy_writer = LlmAgent(
     name="strategy_writer",
-    model=config.MODEL,
+    model=_model(config.PRO_MODEL),  # synthesis + reasoning
     description="Writes an executive competitive brief with a SWOT and talking points.",
     instruction=prompts.STRATEGY_WRITER_INSTRUCTION,
+    output_key="strategy_brief",
     generate_content_config=types.GenerateContentConfig(temperature=0.4),
+)
+
+# Self-evaluation: audits the draft against the source numbers and returns a
+# structured, validated BriefReview (verdict, checks, issues, final_brief).
+brief_quality_reviewer = LlmAgent(
+    name="brief_quality_reviewer",
+    model=_model(config.PRO_MODEL),
+    description="Checks the brief is grounded, complete and disclaimed; fixes it if not.",
+    instruction=prompts.BRIEF_QUALITY_REVIEWER_INSTRUCTION,
+    output_schema=BriefReview,
+    output_key="brief_review",
+    generate_content_config=types.GenerateContentConfig(temperature=0.0),
 )
 
 competitive_report_pipeline = SequentialAgent(
     name="competitive_report_pipeline",
     description=(
         "Produces a full competitive brief: gathers financials and news in "
-        "parallel, then writes a SWOT and talking points. Input should list "
-        "the companies and focus areas."
+        "parallel, writes a SWOT and talking points, then self-reviews the "
+        "brief for grounding and completeness. Input should list the "
+        "companies and focus areas."
     ),
     sub_agents=[
         ParallelAgent(
@@ -179,6 +271,7 @@ competitive_report_pipeline = SequentialAgent(
             ],
         ),
         strategy_writer,
+        brief_quality_reviewer,
     ],
 )
 
@@ -188,7 +281,7 @@ competitive_report_pipeline = SequentialAgent(
 
 root_agent = LlmAgent(
     name="retail_strategy_coordinator",
-    model=config.MODEL,
+    model=_model(config.PRO_MODEL),  # routing + reasoning
     description="Coordinates competitive analysis of Walmart vs. top US retailers.",
     instruction=prompts.COORDINATOR_INSTRUCTION,
     tools=[
@@ -196,8 +289,9 @@ root_agent = LlmAgent(
         AgentTool(agent=market_researcher),
         AgentTool(agent=competitive_report_pipeline),
         remember_focus_area,
-        save_insight,
         get_user_profile,
+        save_insight_tool,
+        clear_user_memory_tool,
         load_memory,
     ],
     before_agent_callback=initialize_state,

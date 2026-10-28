@@ -1,0 +1,4 @@
+# Example values. Copy to terraform.tfvars (git-ignored) and edit.
+project_id = "your-gcp-project-id"
+region     = "us-central1"
+image_tag  = "latest"
